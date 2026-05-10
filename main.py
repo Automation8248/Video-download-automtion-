@@ -2,32 +2,33 @@ import os
 import yt_dlp
 import requests
 
-# --- CONFIGURATION ---
-# We use environment variables so you don't hardcode secrets on GitHub
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") 
+# --- CONFIGURATION & SECRETS ---
+# Yeh GitHub Actions ke environment variables se aayega
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") 
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LINKS_FILE = "link.txt"
 
 def send_to_telegram(file_path):
-    """Sends the downloaded video to Telegram."""
+    """Downloads hone ke baad video ko Telegram par bhejta hai."""
     if not BOT_TOKEN or not CHAT_ID:
-        print("Error: Telegram Bot Token or Chat ID is missing!")
+        print("❌ Error: Telegram Token ya Chat ID missing hai!")
         return False
 
-    # Check file size (Telegram Bot API limit is 50MB)
+    # Telegram Bot API ki 50MB limit check karna
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-    print(f"File size: {file_size_mb:.2f} MB")
+    print(f"📦 File size: {file_size_mb:.2f} MB")
     
     if file_size_mb > 50:
-        print(f"❌ Skipping Telegram upload. File ({file_size_mb:.2f}MB) exceeds the 50MB bot limit.")
+        print(f"⚠️ Skipping Telegram upload. File ({file_size_mb:.2f}MB) Telegram bot ki 50MB limit se badi hai.")
+        print("💡 Tip: GitHub Actions me chhoti quality (720p/480p) select karein ya User API (Pyrogram/Telethon) ka use karein.")
         return False
 
-    print("Uploading to Telegram... this might take a minute.")
+    print("🚀 Uploading to Telegram... kripya wait karein.")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendVideo"
     
     try:
         with open(file_path, 'rb') as video:
-            payload = {'chat_id': CHAT_ID, 'caption': 'Here is your high-quality video!'}
+            payload = {'chat_id': CHAT_ID, 'caption': 'Here is your automated video! 🤖'}
             files = {'video': video}
             response = requests.post(url, data=payload, files=files)
             
@@ -35,65 +36,80 @@ def send_to_telegram(file_path):
             print("✅ Successfully sent to Telegram!")
             return True
         else:
-            print(f"❌ Failed to send. Telegram API Response: {response.text}")
+            print(f"❌ Upload Failed. Telegram API Response: {response.text}")
             return False
     except Exception as e:
         print(f"❌ Error uploading to Telegram: {e}")
         return False
 
 def download_and_send(url):
-    """Force downloads the highest quality video and sends it."""
-    # yt-dlp configuration to force 1080p/4K and merge to mp4
+    """Video ko selected quality me fastest speed ke sath download karta hai."""
+    
+    # GitHub Action se selected quality fetch karna (Default 720p hai agar kuch select na ho)
+    quality = os.getenv("VIDEO_QUALITY", "720p")
+    print(f"\n🎯 Target Quality: {quality}")
+
+    # Quality ke hisaab se format set karna
+    if quality == "best (Highest available)":
+        format_string = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+    else:
+        # '1080p' se '1080' nikal kar height set karna
+        height = quality.replace('p', '')
+        format_string = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+
+    # --- FASTEST DOWNLOAD LOGIC ---
     ydl_opts = {
-        # Force best video (up to 4K) + best audio
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': format_string,
         'merge_output_format': 'mp4',
-        # Name the file uniquely to avoid overwriting
         'outtmpl': '%(id)s_video.%(ext)s',
         'quiet': False,
         'no_warnings': True,
+        
+        # ⚡ SPEED OPTIMIZATIONS ⚡
+        'concurrent_fragment_downloads': 10,  # DASH/HLS videos ke liye 10 tukde ek sath download karega
+        'http_chunk_size': 10485760,          # Standard HTTP ke liye 10MB ke chunks banayega
+        'buffersize': 1024 * 1024 * 5,        # 5MB ka RAM buffer rakhega speed maintain karne ke liye
+        'retries': 5,                         # Agar connection tute to 5 baar retry karega
+        'fragment_retries': 5,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"\n--- Processing: {url} ---")
+            print(f"🔗 Processing Link: {url}")
             
-            # Extract info to get the exact filename
+            # Video ki details nikalna taaki exact file name mil sake
             info = ydl.extract_info(url, download=True)
-            
-            # Construct the final expected filename (since we force merge to mp4)
             file_path = f"{info['id']}_video.mp4"
             
             if os.path.exists(file_path):
-                print("✅ Download complete.")
+                print("✅ Download Complete at maximum speed!")
                 
-                # Send to Telegram
+                # Telegram par send karna
                 send_to_telegram(file_path)
                 
-                # Cleanup: Delete file from server after sending
+                # Server space bachane ke liye local file delete karna
                 os.remove(file_path)
-                print("🗑️ Cleaned up local file.")
+                print("🗑️ Cleaned up local file from server.")
             else:
-                print("❌ Download failed: File not found after download.")
+                print("❌ Download failed: File nahi mili.")
 
     except Exception as e:
-        print(f"❌ An error occurred with yt-dlp: {e}")
+        print(f"❌ yt-dlp Error: {e}")
 
 def main():
-    # Check if the text file exists
     if not os.path.exists(LINKS_FILE):
-        print(f"Error: {LINKS_FILE} not found!")
+        print(f"❌ Error: '{LINKS_FILE}' nahi mila! GitHub me link.txt file banaiye.")
         return
 
-    # Read links from the file, ignoring empty lines
+    # File se links padhna (empty lines ko ignore karke)
     with open(LINKS_FILE, 'r') as file:
         links = [line.strip() for line in file if line.strip()]
 
     if not links:
-        print("No links found in the file.")
+        print("⚠️ link.txt khali hai. Koi links nahi mile.")
         return
 
-    # Process each link
+    # Ek ek karke saare links process karna
     for link in links:
         download_and_send(link)
 
