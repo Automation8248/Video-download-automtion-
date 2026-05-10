@@ -4,7 +4,6 @@ on:
   push:
     paths:
       - 'link.txt'
-  # Yeh section manual trigger ke time dropdown menu banayega
   workflow_dispatch:
     inputs:
       quality:
@@ -44,9 +43,8 @@ jobs:
 
       - name: Run Video Downloader Script
         env:
-          # Yahan TELEGRAM_TOKEN use kiya gaya hai
+          # Yahan humne fix kar diya hai. Yeh aapke 'TELEGRAM_BOT_TOKEN' secret ko uthayega.
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Yahan hum selected quality ko Python script mein bhej rahe hain
           VIDEO_QUALITY: ${{ inputs.quality || '720p' }}
         run: python main.py
