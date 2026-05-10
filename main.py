@@ -4,11 +4,10 @@ import requests
 import subprocess
 
 # --- CONFIGURATION & SECRETS ---
-# Note: Aapke environment me TELEGRAM_TOKEN use hota hai, isliye wahi rakha gaya hai
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") 
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LINKS_FILE = "link.txt"
-MAX_MB_LIMIT = 48  # 50MB limit hoti hai, hum safe side 48MB le rahe hain
+MAX_MB_LIMIT = 48  # Telegram ki 50MB limit ke liye safe margin rakha hai
 
 def get_video_duration(file_path):
     """FFmpeg ki madad se video ki length (seconds) nikalta hai."""
@@ -31,24 +30,21 @@ def compress_video(input_path, output_path, target_mb):
         print("❌ Video duration 0 hai, compression fail ho sakta hai.")
         return False
 
-    # Exact bitrate calculate karna taaki file 50MB ke andar aaye
-    # Formula: Total Bitrate (kbps) = (Target Size in KB) / Duration in seconds
     target_total_bitrate = (target_mb * 8192) / duration
-    audio_bitrate = 128  # Audio ko 128kbps denge
+    audio_bitrate = 128  
     video_bitrate = int(target_total_bitrate - audio_bitrate)
 
-    # Agar video bahut lamba hai, toh bitrate bahut kam ho jayega
     if video_bitrate < 100:
-        print("⚠️ Video bahut lamba hai! Quality bahut blur ho jayegi lekin hum phir bhi compress kar rahe hain.")
+        print("⚠️ Video bahut lamba hai! Quality blur ho sakti hai lekin hum limit me fit karenge.")
         video_bitrate = 100
 
-    print(f"⚙️ Compressing Video... Target Bitrate: {video_bitrate}kbps. Isme thoda time lag sakta hai...")
+    print(f"⚙️ Compressing Video... Target Bitrate: {video_bitrate}kbps. Isme time lag sakta hai...")
     
     cmd = [
         'ffmpeg', '-y', '-i', input_path,
         '-b:v', f'{video_bitrate}k',
         '-c:v', 'libx264',
-        '-preset', 'fast',  # 'fast' speed ke liye, GitHub action ka time bachane ke liye
+        '-preset', 'fast',  # Action fast rakhne ke liye
         '-c:a', 'aac',
         '-b:a', f'{audio_bitrate}k',
         output_path
@@ -87,8 +83,39 @@ def send_to_telegram(file_path):
         print(f"❌ Error uploading to Telegram: {e}")
         return False
 
+def process_downloaded_file(info):
+    """Downloaded file ko process, compress aur send karne ka engine."""
+    if info:
+        original_file = f"{info.get('extractor', 'unknown')}_{info.get('id', 'video')}_video.mp4"
+        compressed_file = f"compressed_{original_file}"
+        
+        if os.path.exists(original_file):
+            print("✅ Download Complete!")
+            file_size_mb = os.path.getsize(original_file) / (1024 * 1024)
+            print(f"📦 File size: {file_size_mb:.2f} MB")
+            
+            file_to_send = original_file
+            
+            # Compression Logic trigger
+            if file_size_mb > MAX_MB_LIMIT:
+                print("⚠️ File 50MB se badi hai! Compression chalu kar rahe hain...")
+                success = compress_video(original_file, compressed_file, target_mb=MAX_MB_LIMIT)
+                if success and os.path.exists(compressed_file):
+                    file_to_send = compressed_file
+                else:
+                    print("❌ Compression fail hua. Original file send try kar rahe hain.")
+            
+            send_to_telegram(file_to_send)
+            
+            # Safai (Cleanup) server space bachane ke liye
+            if os.path.exists(original_file): os.remove(original_file)
+            if os.path.exists(compressed_file): os.remove(compressed_file)
+            print("🗑️ Cleaned up server files.")
+        else:
+            print("❌ File save nahi ho payi.")
+
 def download_and_send(url):
-    """Video download karega aur agar zaroorat padi toh compress bhi karega."""
+    """Video download karta hai (Pehle normal, fir Generic Bypass)."""
     quality = os.getenv("VIDEO_QUALITY", "720p")
     print(f"\n🎯 Target Quality: {quality} for URL: {url}")
 
@@ -96,7 +123,7 @@ def download_and_send(url):
         format_string = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
     else:
         height = quality.replace('p', '')
-        # Yahan '?' add kiya hai: agar site ko height nahi pata, toh wo size/bitrate ke hisaab se best match uthayega
+        # Yahan '?' lagaya hai taaki site ko size na pata ho toh fallback le le
         format_string = f'bestvideo[height<=?{height}][ext=mp4]+bestaudio[ext=m4a]/best[height<=?{height}][ext=mp4]/best'
 
     ydl_opts = {
@@ -105,63 +132,38 @@ def download_and_send(url):
         'outtmpl': '%(extractor)s_%(id)s_video.%(ext)s',
         'quiet': False,
         'no_warnings': True,
-        'ignoreerrors': True,
+        'ignoreerrors': False, # False rakha hai taaki hum Exception catch kar sakein
         'geo_bypass': True,
-        'nocheckcertificate': True,
         'extractor_args': {'generic': {'impersonate': True}}, 
+        
+        # Fast Download Logic
         'concurrent_fragment_downloads': 10,  
         'http_chunk_size': 10485760,          
-        'buffersize': 1024 * 1024 * 5,        
+        'buffersize': 1024 * 1024 * 5, 
     }
 
     try:
+        # ATTEMPT 1: Normal Download
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"🔗 Extracting Video Details...")
-            info = ydl.extract_info(url, download=False)
-            
-            if info:
-                print(f"📥 Starting download...")
-                ydl.download([url])
-                
-                original_file = f"{info.get('extractor', 'unknown')}_{info.get('id', 'video')}_video.mp4"
-                compressed_file = f"compressed_{original_file}"
-                
-                if os.path.exists(original_file):
-                    print("✅ Download Complete!")
-                    
-                    # File Size Check
-                    file_size_mb = os.path.getsize(original_file) / (1024 * 1024)
-                    print(f"📦 Original File size: {file_size_mb:.2f} MB")
-                    
-                    file_to_send = original_file
-
-                    # Agar 50MB limit se bada hai, toh compress karo
-                    if file_size_mb > MAX_MB_LIMIT:
-                        print(f"⚠️ File 50MB se badi hai! Compression chalu kar rahe hain...")
-                        success = compress_video(original_file, compressed_file, target_mb=MAX_MB_LIMIT)
-                        if success and os.path.exists(compressed_file):
-                            new_size = os.path.getsize(compressed_file) / (1024 * 1024)
-                            print(f"📉 New File Size: {new_size:.2f} MB")
-                            file_to_send = compressed_file
-                        else:
-                            print("❌ Compression fail ho gaya. Original file send karne ka try kar rahe hain (par shayad limit lag jaye).")
-                    
-                    # Telegram par bhejna
-                    send_to_telegram(file_to_send)
-                    
-                    # Safai abhiyan (Local files delete karna)
-                    if os.path.exists(original_file):
-                        os.remove(original_file)
-                    if os.path.exists(compressed_file):
-                        os.remove(compressed_file)
-                    print("🗑️ Cleaned up server files.")
-                else:
-                    print("❌ File save nahi ho payi.")
-            else:
-                print("❌ Extract fail! Yeh website heavily protected hai.")
+            print(f"🔗 Extracting Video Details (Normal Mode)...")
+            info = ydl.extract_info(url, download=True)
+            process_downloaded_file(info)
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"⚠️ Pehla attempt fail hua: {e}")
+        # Agar error videoModel ya usse related hai toh backup plan active hoga
+        if "videoModel" in str(e) or "ExtractorError" in str(e) or "KeyError" in str(e):
+            print("🔄 Broken plugin detected! Raw HTML (Generic Extractor) mode me retry kar rahe hain...")
+            
+            # ATTEMPT 2: Force Generic Extractor (Zabardasti link nikalna)
+            ydl_opts['force_generic_extractor'] = True
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    print(f"🔗 Extracting Video Details (Generic Mode)...")
+                    info = ydl.extract_info(url, download=True)
+                    process_downloaded_file(info)
+            except Exception as e2:
+                print(f"❌ Dono attempts fail ho gaye. Website ka DRM/Security bahut strong hai. Error: {e2}")
 
 def main():
     if not os.path.exists(LINKS_FILE):
