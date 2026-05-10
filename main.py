@@ -41,47 +41,69 @@ def send_to_telegram(file_path):
         return False
 
 def download_and_send(url):
-    """Video ko selected quality me fastest speed ke sath download karta hai."""
+    """Kisi bhi website se best possible tarike se video nikalne ka logic."""
     
     quality = os.getenv("VIDEO_QUALITY", "720p")
-    print(f"\n🎯 Target Quality: {quality}")
+    print(f"\n🎯 Target Quality: {quality} for URL: {url}")
 
     if quality == "best (Highest available)":
         format_string = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
     else:
         height = quality.replace('p', '')
+        # Agar height set fail hoti hai kisi unknown site pe, toh 'best' pe fallback karega
         format_string = f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
 
-    # --- FASTEST DOWNLOAD LOGIC ---
+    # --- 🌍 "ANY WEBSITE" MAX COMPATIBILITY LOGIC 🌍 ---
     ydl_opts = {
         'format': format_string,
         'merge_output_format': 'mp4',
-        'outtmpl': '%(id)s_video.%(ext)s',
+        
+        # File ka naam safely generate karega (chahe site ka naam kuch bhi ho)
+        'outtmpl': '%(extractor)s_%(id)s_video.%(ext)s',
+        
         'quiet': False,
         'no_warnings': True,
+        
+        # 🛡️ ANTI-BLOCK & BYPASS LOGIC 🛡️
+        'ignoreerrors': True,            # Agar website block kare, toh script crash nahi hogi, next link pe jayegi
+        'geo_bypass': True,              # Country blocks ko bypass karne ka try karega
+        'nocheckcertificate': True,      # Agar website ka SSL certificate kharab hai, tab bhi download karega
+        
+        # Yeh yt-dlp ko "Chrome Browser" jaisa dikhayega taaki bots ko block karne wali sites na rokein
+        'extractor_args': {'generic': {'impersonate': True}}, 
+        
+        # ⚡ FASTEST DOWNLOAD SPEED ⚡
         'concurrent_fragment_downloads': 10,  
         'http_chunk_size': 10485760,          
         'buffersize': 1024 * 1024 * 5,        
-        'retries': 5,                         
-        'fragment_retries': 5,
+        'retries': 10,                         
+        'fragment_retries': 10,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"🔗 Processing Link: {url}")
+            print(f"🔗 Extracting Video Details...")
             
-            info = ydl.extract_info(url, download=True)
-            file_path = f"{info['id']}_video.mp4"
+            # Info extract karna
+            info = ydl.extract_info(url, download=False)
             
-            if os.path.exists(file_path):
-                print("✅ Download Complete at maximum speed!")
+            if info:
+                # Actual download trigger karna
+                print(f"📥 Found video! Starting download...")
+                ydl.download([url])
                 
-                send_to_telegram(file_path)
+                # Check karna ki file download hui ya nahi
+                downloaded_file = f"{info.get('extractor', 'unknown')}_{info.get('id', 'video')}_video.mp4"
                 
-                os.remove(file_path)
-                print("🗑️ Cleaned up local file from server.")
+                if os.path.exists(downloaded_file):
+                    print("✅ Download Complete at maximum speed!")
+                    send_to_telegram(downloaded_file)
+                    os.remove(downloaded_file)
+                    print("🗑️ Cleaned up local file from server.")
+                else:
+                    print("❌ File save nahi ho payi. Shayad website ne video ko chupa diya hai.")
             else:
-                print("❌ Download failed: File nahi mili.")
+                print("❌ Extract fail! Yeh website heavily protected hai (Cloudflare/DRM/Captcha).")
 
     except Exception as e:
         print(f"❌ yt-dlp Error: {e}")
