@@ -48,3 +48,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           VIDEO_QUALITY: ${{ inputs.quality || '720p' }}
         run: python main.py
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Yeh normal pip update ki jagah seedha GitHub se latest unreleased patch uthayega
+          pip install -U https://github.com/yt-dlp/yt-dlp/archive/master.zip requests
