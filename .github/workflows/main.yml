@@ -45,7 +45,7 @@ jobs:
       - name: Run Video Downloader Script
         env:
           # Yahan TELEGRAM_TOKEN use kiya gaya hai
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Yahan hum selected quality ko Python script mein bhej rahe hain
           VIDEO_QUALITY: ${{ inputs.quality || '720p' }}
