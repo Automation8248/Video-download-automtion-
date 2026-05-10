@@ -4,7 +4,7 @@ import requests
 
 # --- CONFIGURATION & SECRETS ---
 # Yeh GitHub Actions ke environment variables se aayega
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN") 
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") 
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 LINKS_FILE = "link.txt"
 
